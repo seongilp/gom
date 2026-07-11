@@ -1,12 +1,16 @@
 import AppKit
-import AVFoundation
 
-/// Layer-hosting view backed directly by AVPlayerLayer (hardware-accelerated video path).
+/// Input container view: keyboard shortcuts, drag & drop, hover tracking.
+/// Hosts the active backend's video view as a full-size subview.
 final class PlayerView: NSView {
-    let player = AVPlayer()
-
     var onOpenFile: ((URL) -> Void)?
     var onScaleRequest: ((CGFloat) -> Void)?
+    var onHoverChange: ((Bool) -> Void)?
+    var onTogglePlayPause: (() -> Void)?
+    var onSeek: ((Double) -> Void)?
+    var onVolumeChange: ((Float) -> Void)?
+
+    private var trackingArea: NSTrackingArea?
 
     private static let seekStep: Double = 5.0
     private static let volumeStep: Float = 0.1
@@ -14,6 +18,7 @@ final class PlayerView: NSView {
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
         wantsLayer = true
+        layer?.backgroundColor = NSColor.black.cgColor
         registerForDraggedTypes([.fileURL])
     }
 
@@ -22,11 +27,11 @@ final class PlayerView: NSView {
         fatalError("init(coder:) is not supported")
     }
 
-    override func makeBackingLayer() -> CALayer {
-        let playerLayer = AVPlayerLayer(player: player)
-        playerLayer.backgroundColor = NSColor.black.cgColor
-        playerLayer.videoGravity = .resizeAspect
-        return playerLayer
+    func setBackendView(_ backendView: NSView) {
+        subviews.forEach { $0.removeFromSuperview() }
+        backendView.frame = bounds
+        backendView.autoresizingMask = [.width, .height]
+        addSubview(backendView)
     }
 
     // MARK: - Keyboard
@@ -36,15 +41,15 @@ final class PlayerView: NSView {
     override func keyDown(with event: NSEvent) {
         switch event.keyCode {
         case 49:  // space
-            togglePlayPause()
+            onTogglePlayPause?()
         case 123: // left arrow
-            seek(by: -Self.seekStep)
+            onSeek?(-Self.seekStep)
         case 124: // right arrow
-            seek(by: Self.seekStep)
+            onSeek?(Self.seekStep)
         case 126: // up arrow
-            adjustVolume(by: Self.volumeStep)
+            onVolumeChange?(Self.volumeStep)
         case 125: // down arrow
-            adjustVolume(by: -Self.volumeStep)
+            onVolumeChange?(-Self.volumeStep)
         case 18:  // 1
             onScaleRequest?(0.5)
         case 19:  // 2
@@ -56,33 +61,36 @@ final class PlayerView: NSView {
         }
     }
 
-    // MARK: - Playback controls
+    // MARK: - Mouse
 
-    func togglePlayPause() {
-        guard player.currentItem != nil else { return }
-        if player.timeControlStatus == .paused {
-            player.play()
+    override func mouseDown(with event: NSEvent) {
+        if event.clickCount == 2 {
+            window?.toggleFullScreen(nil)
         } else {
-            player.pause()
+            super.mouseDown(with: event)
         }
     }
 
-    private func seek(by seconds: Double) {
-        guard let item = player.currentItem else { return }
-        let offset = CMTime(seconds: seconds, preferredTimescale: 600)
-        var target = player.currentTime() + offset
-        if target < .zero {
-            target = .zero
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        if let trackingArea {
+            removeTrackingArea(trackingArea)
         }
-        let duration = item.duration
-        if duration.isNumeric && target > duration {
-            target = duration
-        }
-        player.seek(to: target, toleranceBefore: .zero, toleranceAfter: .zero)
+        let area = NSTrackingArea(
+            rect: bounds,
+            options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect],
+            owner: self
+        )
+        addTrackingArea(area)
+        trackingArea = area
     }
 
-    private func adjustVolume(by delta: Float) {
-        player.volume = min(max(player.volume + delta, 0), 1)
+    override func mouseEntered(with event: NSEvent) {
+        onHoverChange?(true)
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        onHoverChange?(false)
     }
 
     // MARK: - Drag & drop
