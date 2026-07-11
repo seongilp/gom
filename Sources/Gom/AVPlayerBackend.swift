@@ -192,6 +192,24 @@ final class AVPlayerBackend: NSObject, PlaybackBackend {
         }
     }
 
+    func liveStats() -> [(String, String)] {
+        var lines: [(String, String)] = []
+        guard let item = player.currentItem else { return lines }
+        if let track = item.tracks.first(where: { $0.assetTrack?.mediaType == .video }) {
+            lines.append(("FPS", String(format: "%.2f", track.currentVideoFrameRate)))
+        }
+        if let event = item.accessLog()?.events.last {
+            if event.numberOfDroppedVideoFrames >= 0 {
+                lines.append(("Dropped", "\(event.numberOfDroppedVideoFrames)"))
+            }
+            if event.indicatedBitrate > 0 {
+                lines.append(("Bitrate", String(format: "%.1f Mbps", event.indicatedBitrate / 1_000_000)))
+            }
+        }
+        lines.append(("Rate", String(format: "%.2f×", player.rate)))
+        return lines
+    }
+
     func shutdown() {
         player.pause()
         player.replaceCurrentItem(with: nil)

@@ -22,6 +22,8 @@ protocol PlaybackBackend: AnyObject {
     func adjustVolume(by delta: Float)
     func toggleMute()
     func fetchMediaInfo(completion: @escaping (MediaInfo?) -> Void)
+    /// Fast, synchronous, safe to poll several times per second.
+    func liveStats() -> [(String, String)]
     func shutdown()
 }
 

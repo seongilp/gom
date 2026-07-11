@@ -118,7 +118,14 @@ final class InfoPanel: NSVisualEffectView {
 
     override var mouseDownCanMoveWindow: Bool { false }
 
-    func show(info: MediaInfo?) {
-        textLabel.stringValue = info?.formatted() ?? "No media information available"
+    func render(staticText: String?, liveLines: [(String, String)]) {
+        var text = staticText ?? "Loading…"
+        if !liveLines.isEmpty {
+            let live = liveLines
+                .map { key, value in key.padding(toLength: 11, withPad: " ", startingAt: 0) + value }
+                .joined(separator: "\n")
+            text += "\n\n" + live
+        }
+        textLabel.stringValue = text
     }
 }

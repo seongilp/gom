@@ -11,6 +11,7 @@ final class PlayerWindowController: NSWindowController, NSWindowDelegate {
 
     private var isPaused = true
     private var infoVisible = false
+    private var cachedInfoText: String?
     private var hudUpdateTimer: Timer?
     private var hudHideTimer: Timer?
 
@@ -77,9 +78,9 @@ final class PlayerWindowController: NSWindowController, NSWindowDelegate {
             controlBar.bottomAnchor.constraint(equalTo: playerView.bottomAnchor, constant: -16),
             controlBar.heightAnchor.constraint(equalToConstant: 44),
 
-            infoPanel.leadingAnchor.constraint(equalTo: playerView.leadingAnchor, constant: 16),
-            infoPanel.topAnchor.constraint(equalTo: playerView.topAnchor, constant: 44),
-            infoPanel.widthAnchor.constraint(lessThanOrEqualToConstant: 520),
+            infoPanel.trailingAnchor.constraint(equalTo: playerView.trailingAnchor, constant: -16),
+            infoPanel.topAnchor.constraint(equalTo: playerView.topAnchor, constant: 16),
+            infoPanel.widthAnchor.constraint(lessThanOrEqualToConstant: 560),
         ])
 
         hudUpdateTimer = Timer.scheduledTimer(withTimeInterval: 0.25, repeats: true) { [weak self] _ in
@@ -90,13 +91,18 @@ final class PlayerWindowController: NSWindowController, NSWindowDelegate {
     // MARK: - HUD
 
     private func refreshHUD() {
-        guard let backend, !controlBar.isHidden else { return }
-        controlBar.update(
-            current: backend.currentTime,
-            duration: backend.duration,
-            volume: backend.volume,
-            muted: backend.isMuted
-        )
+        guard let backend else { return }
+        if !controlBar.isHidden {
+            controlBar.update(
+                current: backend.currentTime,
+                duration: backend.duration,
+                volume: backend.volume,
+                muted: backend.isMuted
+            )
+        }
+        if infoVisible {
+            infoPanel.render(staticText: cachedInfoText, liveLines: backend.liveStats())
+        }
     }
 
     private func setControlBarVisible(_ visible: Bool) {
@@ -140,11 +146,13 @@ final class PlayerWindowController: NSWindowController, NSWindowDelegate {
     private func toggleInfoPanel() {
         infoVisible.toggle()
         if infoVisible {
-            infoPanel.show(info: nil)
+            cachedInfoText = nil
+            infoPanel.render(staticText: nil, liveLines: backend?.liveStats() ?? [])
             infoPanel.isHidden = false
             backend?.fetchMediaInfo { [weak self] info in
                 guard let self, self.infoVisible else { return }
-                self.infoPanel.show(info: info)
+                self.cachedInfoText = info?.formatted() ?? "No media information available"
+                self.refreshHUD()
             }
         } else {
             infoPanel.isHidden = true

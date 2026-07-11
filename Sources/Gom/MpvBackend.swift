@@ -87,6 +87,25 @@ final class MpvBackend: NSObject, PlaybackBackend {
         completion(info)
     }
 
+    func liveStats() -> [(String, String)] {
+        guard handle != nil else { return [] }
+        var lines: [(String, String)] = []
+        let fps = getDouble("estimated-vf-fps")
+        if fps > 0 {
+            lines.append(("FPS", String(format: "%.2f", fps)))
+        }
+        let dropped = getInt("frame-drop-count") + getInt("decoder-frame-drop-count")
+        lines.append(("Dropped", "\(dropped)"))
+        let bitrate = getDouble("video-bitrate")
+        if bitrate > 0 {
+            lines.append(("Bitrate", String(format: "%.1f Mbps", bitrate / 1_000_000)))
+        }
+        lines.append(("A/V Sync", String(format: "%+.3f s", getDouble("avsync"))))
+        let hwdec = getString("hwdec-current")
+        lines.append(("HW Decode", (hwdec?.isEmpty == false && hwdec != "no") ? hwdec! : "off (software)"))
+        return lines
+    }
+
     func shutdown() {
         videoView.videoLayer.detachRenderContext()
         if let renderContext {
