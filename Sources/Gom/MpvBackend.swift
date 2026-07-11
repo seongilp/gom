@@ -7,12 +7,20 @@ final class MpvBackend: NSObject, PlaybackBackend {
     let view: NSView
     var onVideoSizeChange: ((CGSize) -> Void)?
     var onPlaybackFailed: ((URL) -> Void)?
+    var onPauseStateChange: ((Bool) -> Void)?
 
     private var handle: OpaquePointer?
     private var renderContext: OpaquePointer?
     private let eventQueue = DispatchQueue(label: "com.zihado.gom.mpv-events")
+    private var currentURL: URL?
 
     private var videoView: MpvVideoView { view as! MpvVideoView }
+
+    var isPaused: Bool { getFlag("pause") }
+    var currentTime: Double { getDouble("time-pos") }
+    var duration: Double { getDouble("duration") }
+    var volume: Float { Float(getDouble("volume") / 100) }
+    var isMuted: Bool { getFlag("mute") }
 
     override init() {
         self.view = MpvVideoView(frame: .zero)
@@ -23,6 +31,7 @@ final class MpvBackend: NSObject, PlaybackBackend {
         if handle == nil {
             setUp()
         }
+        currentURL = url
         command("loadfile", url.path)
         setPaused(false)
     }
@@ -35,8 +44,46 @@ final class MpvBackend: NSObject, PlaybackBackend {
         command("seek", String(seconds), "relative+exact")
     }
 
+    func seek(to seconds: Double) {
+        command("seek", String(max(seconds, 0)), "absolute+exact")
+    }
+
     func adjustVolume(by delta: Float) {
         command("add", "volume", String(Int(delta * 100)))
+    }
+
+    func toggleMute() {
+        command("cycle", "mute")
+    }
+
+    func fetchMediaInfo(completion: @escaping (MediaInfo?) -> Void) {
+        guard let currentURL, handle != nil else {
+            completion(nil)
+            return
+        }
+        var info = MediaInfo(
+            fileName: currentURL.lastPathComponent,
+            filePath: currentURL.path,
+            fileSizeBytes: MediaInfo.fileSize(of: currentURL),
+            container: getString("file-format") ?? currentURL.pathExtension.lowercased(),
+            durationSeconds: duration,
+            engine: "libmpv"
+        )
+        info.videoCodec = (getString("video-format") ?? getString("video-codec"))?.uppercased()
+        let width = getInt("width")
+        let height = getInt("height")
+        info.width = width > 0 ? width : nil
+        info.height = height > 0 ? height : nil
+        let fps = getDouble("container-fps")
+        info.fps = fps > 0 ? fps : nil
+        let bitrate = getDouble("video-bitrate")
+        info.videoBitrate = bitrate > 0 ? bitrate : nil
+        info.audioCodec = getString("audio-codec-name")?.uppercased()
+        let sampleRate = getInt("audio-params/samplerate")
+        info.sampleRate = sampleRate > 0 ? sampleRate : nil
+        let channels = getInt("audio-params/channel-count")
+        info.channels = channels > 0 ? channels : nil
+        completion(info)
     }
 
     func shutdown() {
@@ -92,6 +139,7 @@ final class MpvBackend: NSObject, PlaybackBackend {
             return
         }
         handle = mpv
+        mpv_observe_property(mpv, 0, "pause", MPV_FORMAT_FLAG)
 
         createRenderContext(for: mpv)
 
@@ -173,6 +221,17 @@ final class MpvBackend: NSObject, PlaybackBackend {
             if eventID == MPV_EVENT_VIDEO_RECONFIG {
                 reportVideoSize()
             }
+            if eventID == MPV_EVENT_PROPERTY_CHANGE {
+                let property = event.pointee.data.assumingMemoryBound(to: mpv_event_property.self).pointee
+                if String(cString: property.name) == "pause",
+                   property.format == MPV_FORMAT_FLAG,
+                   let data = property.data {
+                    let paused = data.assumingMemoryBound(to: Int32.self).pointee != 0
+                    DispatchQueue.main.async { [weak self] in
+                        self?.onPauseStateChange?(paused)
+                    }
+                }
+            }
         }
     }
 
@@ -209,5 +268,35 @@ final class MpvBackend: NSObject, PlaybackBackend {
         guard let handle else { return }
         var flag: Int32 = paused ? 1 : 0
         mpv_set_property(handle, "pause", MPV_FORMAT_FLAG, &flag)
+    }
+
+    // MARK: - Property getters
+
+    private func getDouble(_ name: String) -> Double {
+        guard let handle else { return 0 }
+        var value: Double = 0
+        mpv_get_property(handle, name, MPV_FORMAT_DOUBLE, &value)
+        return value
+    }
+
+    private func getInt(_ name: String) -> Int {
+        guard let handle else { return 0 }
+        var value: Int64 = 0
+        mpv_get_property(handle, name, MPV_FORMAT_INT64, &value)
+        return Int(value)
+    }
+
+    private func getFlag(_ name: String) -> Bool {
+        guard let handle else { return false }
+        var value: Int32 = 0
+        mpv_get_property(handle, name, MPV_FORMAT_FLAG, &value)
+        return value != 0
+    }
+
+    private func getString(_ name: String) -> String? {
+        guard let handle else { return nil }
+        guard let cString = mpv_get_property_string(handle, name) else { return nil }
+        defer { mpv_free(cString) }
+        return String(cString: cString)
     }
 }

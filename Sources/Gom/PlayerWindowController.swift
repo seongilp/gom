@@ -3,11 +3,19 @@ import UniformTypeIdentifiers
 
 final class PlayerWindowController: NSWindowController, NSWindowDelegate {
     private let playerView = PlayerView(frame: .zero)
+    private let controlBar = ControlBar()
+    private let infoPanel = InfoPanel()
     private var backend: PlaybackBackend?
     private var backendKind: BackendKind?
     private var videoSize: CGSize?
 
+    private var isPaused = true
+    private var infoVisible = false
+    private var hudUpdateTimer: Timer?
+    private var hudHideTimer: Timer?
+
     private static let defaultContentSize = NSSize(width: 640, height: 360)
+    private static let hudAutoHideDelay: TimeInterval = 2.5
 
     convenience init() {
         let window = NSWindow(
@@ -31,11 +39,116 @@ final class PlayerWindowController: NSWindowController, NSWindowDelegate {
         playerView.onOpenFile = { [weak self] url in self?.open(url: url) }
         playerView.onScaleRequest = { [weak self] scale in self?.resizeWindow(scale: scale) }
         playerView.onTogglePlayPause = { [weak self] in self?.backend?.togglePlayPause() }
-        playerView.onSeek = { [weak self] seconds in self?.backend?.seek(by: seconds) }
-        playerView.onVolumeChange = { [weak self] delta in self?.backend?.adjustVolume(by: delta) }
+        playerView.onSeek = { [weak self] seconds in
+            self?.backend?.seek(by: seconds)
+            self?.showHUDTransiently()
+        }
+        playerView.onVolumeChange = { [weak self] delta in
+            self?.backend?.adjustVolume(by: delta)
+            self?.showHUDTransiently()
+        }
         playerView.onHoverChange = { [weak self] inside in self?.setWindowButtonsVisible(inside) }
+        playerView.onMouseMoved = { [weak self] in self?.showHUDTransiently() }
+        playerView.onToggleInfo = { [weak self] in self?.toggleInfoPanel() }
+        playerView.onToggleMute = { [weak self] in
+            self?.backend?.toggleMute()
+            self?.showHUDTransiently()
+        }
 
+        setUpOverlays()
         setWindowButtonsVisible(false)
+    }
+
+    private func setUpOverlays() {
+        playerView.addSubview(controlBar)
+        playerView.addSubview(infoPanel)
+        controlBar.alphaValue = 0
+        controlBar.isHidden = true
+        infoPanel.isHidden = true
+
+        controlBar.onSeekFraction = { [weak self] fraction in
+            guard let backend = self?.backend, backend.duration > 0 else { return }
+            backend.seek(to: fraction * backend.duration)
+        }
+
+        NSLayoutConstraint.activate([
+            controlBar.leadingAnchor.constraint(equalTo: playerView.leadingAnchor, constant: 16),
+            controlBar.trailingAnchor.constraint(equalTo: playerView.trailingAnchor, constant: -16),
+            controlBar.bottomAnchor.constraint(equalTo: playerView.bottomAnchor, constant: -16),
+            controlBar.heightAnchor.constraint(equalToConstant: 44),
+
+            infoPanel.leadingAnchor.constraint(equalTo: playerView.leadingAnchor, constant: 16),
+            infoPanel.topAnchor.constraint(equalTo: playerView.topAnchor, constant: 44),
+            infoPanel.widthAnchor.constraint(lessThanOrEqualToConstant: 520),
+        ])
+
+        hudUpdateTimer = Timer.scheduledTimer(withTimeInterval: 0.25, repeats: true) { [weak self] _ in
+            self?.refreshHUD()
+        }
+    }
+
+    // MARK: - HUD
+
+    private func refreshHUD() {
+        guard let backend, !controlBar.isHidden else { return }
+        controlBar.update(
+            current: backend.currentTime,
+            duration: backend.duration,
+            volume: backend.volume,
+            muted: backend.isMuted
+        )
+    }
+
+    private func setControlBarVisible(_ visible: Bool) {
+        if visible {
+            controlBar.isHidden = false
+            refreshHUD()
+        }
+        NSAnimationContext.runAnimationGroup({ context in
+            context.duration = 0.2
+            controlBar.animator().alphaValue = visible ? 1 : 0
+        }, completionHandler: { [weak self] in
+            guard let self, !visible, self.controlBar.alphaValue == 0 else { return }
+            self.controlBar.isHidden = true
+        })
+    }
+
+    private func showHUDTransiently() {
+        guard backend != nil else { return }
+        setControlBarVisible(true)
+        hudHideTimer?.invalidate()
+        guard !isPaused else { return }
+        hudHideTimer = Timer.scheduledTimer(
+            withTimeInterval: Self.hudAutoHideDelay,
+            repeats: false
+        ) { [weak self] _ in
+            guard let self, !self.isPaused else { return }
+            self.setControlBarVisible(false)
+        }
+    }
+
+    private func handlePauseStateChange(_ paused: Bool) {
+        isPaused = paused
+        if paused {
+            hudHideTimer?.invalidate()
+            setControlBarVisible(true)
+        } else {
+            showHUDTransiently()
+        }
+    }
+
+    private func toggleInfoPanel() {
+        infoVisible.toggle()
+        if infoVisible {
+            infoPanel.show(info: nil)
+            infoPanel.isHidden = false
+            backend?.fetchMediaInfo { [weak self] info in
+                guard let self, self.infoVisible else { return }
+                self.infoPanel.show(info: info)
+            }
+        } else {
+            infoPanel.isHidden = true
+        }
     }
 
     // MARK: - Opening files
@@ -75,6 +188,9 @@ final class PlayerWindowController: NSWindowController, NSWindowDelegate {
                 guard self?.backendKind == .native else { return }
                 self?.open(url: failedURL, using: .mpv)
             }
+            newBackend.onPauseStateChange = { [weak self] paused in
+                self?.handlePauseStateChange(paused)
+            }
             playerView.setBackendView(newBackend.view)
             backend = newBackend
             backendKind = kind
@@ -83,6 +199,11 @@ final class PlayerWindowController: NSWindowController, NSWindowDelegate {
         videoSize = nil
         window?.title = url.lastPathComponent
         backend?.open(url: url)
+
+        if infoVisible {
+            infoVisible = false
+            infoPanel.isHidden = true
+        }
     }
 
     // MARK: - Window chrome (hover-only traffic lights)
@@ -133,6 +254,8 @@ final class PlayerWindowController: NSWindowController, NSWindowDelegate {
     }
 
     func windowWillClose(_ notification: Notification) {
+        hudUpdateTimer?.invalidate()
+        hudHideTimer?.invalidate()
         backend?.shutdown()
     }
 }

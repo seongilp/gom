@@ -6,11 +6,15 @@ final class PlayerView: NSView {
     var onOpenFile: ((URL) -> Void)?
     var onScaleRequest: ((CGFloat) -> Void)?
     var onHoverChange: ((Bool) -> Void)?
+    var onMouseMoved: (() -> Void)?
     var onTogglePlayPause: (() -> Void)?
     var onSeek: ((Double) -> Void)?
     var onVolumeChange: ((Float) -> Void)?
+    var onToggleInfo: (() -> Void)?
+    var onToggleMute: (() -> Void)?
 
     private var trackingArea: NSTrackingArea?
+    private var backendView: NSView?
 
     private static let seekStep: Double = 5.0
     private static let volumeStep: Float = 0.1
@@ -27,11 +31,13 @@ final class PlayerView: NSView {
         fatalError("init(coder:) is not supported")
     }
 
-    func setBackendView(_ backendView: NSView) {
-        subviews.forEach { $0.removeFromSuperview() }
-        backendView.frame = bounds
-        backendView.autoresizingMask = [.width, .height]
-        addSubview(backendView)
+    func setBackendView(_ newBackendView: NSView) {
+        backendView?.removeFromSuperview()
+        newBackendView.frame = bounds
+        newBackendView.autoresizingMask = [.width, .height]
+        // Keep overlay views (control bar, info panel) above the video.
+        addSubview(newBackendView, positioned: .below, relativeTo: subviews.first)
+        backendView = newBackendView
     }
 
     // MARK: - Keyboard
@@ -56,6 +62,10 @@ final class PlayerView: NSView {
             onScaleRequest?(1.0)
         case 20:  // 3
             onScaleRequest?(2.0)
+        case 9:   // v
+            onToggleInfo?()
+        case 46:  // m
+            onToggleMute?()
         default:
             super.keyDown(with: event)
         }
@@ -78,7 +88,7 @@ final class PlayerView: NSView {
         }
         let area = NSTrackingArea(
             rect: bounds,
-            options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect],
+            options: [.mouseEnteredAndExited, .mouseMoved, .activeAlways, .inVisibleRect],
             owner: self
         )
         addTrackingArea(area)
@@ -91,6 +101,10 @@ final class PlayerView: NSView {
 
     override func mouseExited(with event: NSEvent) {
         onHoverChange?(false)
+    }
+
+    override func mouseMoved(with event: NSEvent) {
+        onMouseMoved?()
     }
 
     // MARK: - Drag & drop

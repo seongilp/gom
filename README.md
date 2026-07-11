@@ -25,8 +25,12 @@ Or download the notarized DMG from [Releases](https://github.com/seongilp/gom/re
 | `1` | Resize window to 50% |
 | `2` | Resize window to 100% |
 | `3` | Resize window to 200% |
+| `V` | Toggle media info panel |
+| `M` | Mute |
 | `⌘F` / double-click | Full screen |
 | `⌘O` | Open file |
+
+Pausing (or moving the mouse) shows a seek bar with current position, duration, and volume; it auto-hides during playback.
 
 Also supports drag & drop and "Open With" from Finder.
 

@@ -6,11 +6,22 @@ protocol PlaybackBackend: AnyObject {
     var view: NSView { get }
     var onVideoSizeChange: ((CGSize) -> Void)? { get set }
     var onPlaybackFailed: ((URL) -> Void)? { get set }
+    var onPauseStateChange: ((Bool) -> Void)? { get set }
+
+    var isPaused: Bool { get }
+    var currentTime: Double { get }
+    var duration: Double { get }
+    /// Normalized 0...1
+    var volume: Float { get }
+    var isMuted: Bool { get }
 
     func open(url: URL)
     func togglePlayPause()
     func seek(by seconds: Double)
+    func seek(to seconds: Double)
     func adjustVolume(by delta: Float)
+    func toggleMute()
+    func fetchMediaInfo(completion: @escaping (MediaInfo?) -> Void)
     func shutdown()
 }
 
