@@ -95,23 +95,48 @@ final class AVPlayerBackend: NSObject, PlaybackBackend {
     }
 
     func seek(by seconds: Double) {
-        guard let item = player.currentItem else { return }
-        let offset = CMTime(seconds: seconds, preferredTimescale: 600)
-        var target = player.currentTime() + offset
-        if target < .zero {
-            target = .zero
-        }
-        let duration = item.duration
-        if duration.isNumeric && target > duration {
-            target = duration
-        }
-        player.seek(to: target, toleranceBefore: .zero, toleranceAfter: .zero)
+        // Chain off the pending target so rapid presses accumulate (+5, +10, …).
+        requestSeek(to: (pendingSeekTarget ?? currentTime) + seconds)
     }
 
     func seek(to seconds: Double) {
+        requestSeek(to: seconds)
+    }
+
+    /// Coalesced, keyframe-tolerant seeking: while one seek is in flight, new
+    /// requests only move the target; the newest target wins when it completes.
+    /// Exact (frame-accurate) seeks decode from the previous keyframe and make
+    /// arrow-key scrubbing feel like buffering.
+    private var pendingSeekTarget: Double?
+    private var seekInFlight = false
+
+    private func requestSeek(to seconds: Double) {
         guard player.currentItem != nil else { return }
-        let target = CMTime(seconds: max(seconds, 0), preferredTimescale: 600)
-        player.seek(to: target, toleranceBefore: .zero, toleranceAfter: .zero)
+        var target = max(seconds, 0)
+        let total = duration
+        if total > 0 {
+            target = min(target, total)
+        }
+        pendingSeekTarget = target
+        if !seekInFlight {
+            performNextSeek()
+        }
+    }
+
+    private func performNextSeek() {
+        guard let target = pendingSeekTarget else {
+            seekInFlight = false
+            return
+        }
+        pendingSeekTarget = nil
+        seekInFlight = true
+        let time = CMTime(seconds: target, preferredTimescale: 600)
+        let tolerance = CMTime(seconds: 0.5, preferredTimescale: 600)
+        player.seek(to: time, toleranceBefore: tolerance, toleranceAfter: tolerance) { [weak self] _ in
+            DispatchQueue.main.async {
+                self?.performNextSeek()
+            }
+        }
     }
 
     func adjustVolume(by delta: Float) {

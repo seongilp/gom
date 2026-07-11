@@ -41,11 +41,12 @@ final class MpvBackend: NSObject, PlaybackBackend {
     }
 
     func seek(by seconds: Double) {
-        command("seek", String(seconds), "relative+exact")
+        // Keyframe seeks (mpv default) — exact seeks feel like buffering.
+        command("seek", String(seconds), "relative")
     }
 
     func seek(to seconds: Double) {
-        command("seek", String(max(seconds, 0)), "absolute+exact")
+        command("seek", String(max(seconds, 0)), "absolute")
     }
 
     func adjustVolume(by delta: Float) {
