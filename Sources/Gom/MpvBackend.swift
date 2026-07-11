@@ -8,6 +8,20 @@ final class MpvBackend: NSObject, PlaybackBackend {
     var onVideoSizeChange: ((CGSize) -> Void)?
     var onPlaybackFailed: ((URL) -> Void)?
     var onPauseStateChange: ((Bool) -> Void)?
+    var onPlaybackEnded: (() -> Void)?
+
+    var playbackRate: Double {
+        get {
+            let speed = getDouble("speed")
+            return speed > 0 ? speed : 1.0
+        }
+        set { setDouble("speed", min(max(newValue, 0.25), 3.0)) }
+    }
+
+    var isLoopEnabled: Bool {
+        get { getString("loop-file") == "inf" }
+        set { command("set", "loop-file", newValue ? "inf" : "no") }
+    }
 
     private var handle: OpaquePointer?
     private var renderContext: OpaquePointer?
@@ -47,6 +61,25 @@ final class MpvBackend: NSObject, PlaybackBackend {
 
     func seek(to seconds: Double) {
         command("seek", String(max(seconds, 0)), "absolute")
+    }
+
+    func stepFrame(forward: Bool) {
+        command(forward ? "frame-step" : "frame-back-step")
+    }
+
+    func captureSnapshot(to url: URL, completion: @escaping (Bool) -> Void) {
+        command("screenshot-to-file", url.path, "video")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+            completion(FileManager.default.fileExists(atPath: url.path))
+        }
+    }
+
+    func loadSubtitle(url: URL) {
+        command("sub-add", url.path)
+    }
+
+    func toggleSubtitles() {
+        command("cycle", "sub-visibility")
     }
 
     func adjustVolume(by delta: Float) {
@@ -160,6 +193,9 @@ final class MpvBackend: NSObject, PlaybackBackend {
         }
         handle = mpv
         mpv_observe_property(mpv, 0, "pause", MPV_FORMAT_FLAG)
+        mpv_observe_property(mpv, 0, "eof-reached", MPV_FORMAT_FLAG)
+        // Auto-load subtitle files whose name matches the video.
+        mpv_set_option_string(mpv, "sub-auto", "fuzzy")
 
         createRenderContext(for: mpv)
 
@@ -243,13 +279,19 @@ final class MpvBackend: NSObject, PlaybackBackend {
             }
             if eventID == MPV_EVENT_PROPERTY_CHANGE {
                 let property = event.pointee.data.assumingMemoryBound(to: mpv_event_property.self).pointee
-                if String(cString: property.name) == "pause",
-                   property.format == MPV_FORMAT_FLAG,
-                   let data = property.data {
-                    let paused = data.assumingMemoryBound(to: Int32.self).pointee != 0
+                guard property.format == MPV_FORMAT_FLAG, let data = property.data else { continue }
+                let flag = data.assumingMemoryBound(to: Int32.self).pointee != 0
+                switch String(cString: property.name) {
+                case "pause":
                     DispatchQueue.main.async { [weak self] in
-                        self?.onPauseStateChange?(paused)
+                        self?.onPauseStateChange?(flag)
                     }
+                case "eof-reached" where flag:
+                    DispatchQueue.main.async { [weak self] in
+                        self?.onPlaybackEnded?()
+                    }
+                default:
+                    break
                 }
             }
         }
@@ -297,6 +339,12 @@ final class MpvBackend: NSObject, PlaybackBackend {
         var value: Double = 0
         mpv_get_property(handle, name, MPV_FORMAT_DOUBLE, &value)
         return value
+    }
+
+    private func setDouble(_ name: String, _ newValue: Double) {
+        guard let handle else { return }
+        var value = newValue
+        mpv_set_property(handle, name, MPV_FORMAT_DOUBLE, &value)
     }
 
     private func getInt(_ name: String) -> Int {

@@ -13,15 +13,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NSApp.activate(ignoringOtherApps: true)
 
         if !pendingURLs.isEmpty {
-            controller.open(url: pendingURLs[0])
+            controller.open(urls: pendingURLs)
             pendingURLs.removeAll()
         }
     }
 
     func application(_ application: NSApplication, open urls: [URL]) {
-        guard let url = urls.first else { return }
+        guard !urls.isEmpty else { return }
         if let controller = windowController {
-            controller.open(url: url)
+            controller.open(urls: urls)
         } else {
             pendingURLs = urls
         }

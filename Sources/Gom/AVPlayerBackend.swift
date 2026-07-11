@@ -28,6 +28,19 @@ final class AVPlayerBackend: NSObject, PlaybackBackend {
     var onVideoSizeChange: ((CGSize) -> Void)?
     var onPlaybackFailed: ((URL) -> Void)?
     var onPauseStateChange: ((Bool) -> Void)?
+    var onPlaybackEnded: (() -> Void)?
+
+    var isLoopEnabled = false
+    private var storedRate: Double = 1.0
+    var playbackRate: Double {
+        get { storedRate }
+        set {
+            storedRate = min(max(newValue, 0.25), 3.0)
+            if !isPaused {
+                player.rate = Float(storedRate)
+            }
+        }
+    }
 
     private var player: AVPlayer { (view as! VideoLayerView).player }
     private var endObserver: NSObjectProtocol?
@@ -51,6 +64,7 @@ final class AVPlayerBackend: NSObject, PlaybackBackend {
         currentURL = url
         let asset = AVURLAsset(url: url)
         let item = AVPlayerItem(asset: asset)
+        item.audioTimePitchAlgorithm = .timeDomain
 
         observeEnd(of: item)
         statusObservation = item.observe(\.status, options: [.new]) { [weak self] item, _ in
@@ -88,10 +102,17 @@ final class AVPlayerBackend: NSObject, PlaybackBackend {
     func togglePlayPause() {
         guard player.currentItem != nil else { return }
         if player.timeControlStatus == .paused {
-            player.play()
+            // play() resets rate to 1; resume at the stored playback rate.
+            player.rate = Float(storedRate)
         } else {
             player.pause()
         }
+    }
+
+    func stepFrame(forward: Bool) {
+        guard let item = player.currentItem else { return }
+        player.pause()
+        item.step(byCount: forward ? 1 : -1)
     }
 
     func seek(by seconds: Double) {
@@ -146,6 +167,34 @@ final class AVPlayerBackend: NSObject, PlaybackBackend {
     func toggleMute() {
         player.isMuted.toggle()
     }
+
+    func captureSnapshot(to url: URL, completion: @escaping (Bool) -> Void) {
+        guard let asset = player.currentItem?.asset else {
+            completion(false)
+            return
+        }
+        let time = player.currentTime()
+        let generator = AVAssetImageGenerator(asset: asset)
+        generator.appliesPreferredTrackTransform = true
+        generator.requestedTimeToleranceBefore = .zero
+        generator.requestedTimeToleranceAfter = .zero
+        DispatchQueue.global(qos: .userInitiated).async {
+            var success = false
+            if let cgImage = try? generator.copyCGImage(at: time, actualTime: nil) {
+                let rep = NSBitmapImageRep(cgImage: cgImage)
+                if let png = rep.representation(using: .png, properties: [:]) {
+                    success = (try? png.write(to: url)) != nil
+                }
+            }
+            DispatchQueue.main.async { completion(success) }
+        }
+    }
+
+    func loadSubtitle(url: URL) {
+        // Subtitled playback is routed to the mpv backend by the controller.
+    }
+
+    func toggleSubtitles() {}
 
     func fetchMediaInfo(completion: @escaping (MediaInfo?) -> Void) {
         guard let currentURL, let asset = player.currentItem?.asset as? AVURLAsset else {
@@ -230,7 +279,13 @@ final class AVPlayerBackend: NSObject, PlaybackBackend {
             object: item,
             queue: .main
         ) { [weak self] _ in
-            (self?.view as? VideoLayerView)?.player.seek(to: .zero)
+            guard let self else { return }
+            if self.isLoopEnabled {
+                self.player.seek(to: .zero, toleranceBefore: .zero, toleranceAfter: .zero)
+                self.player.rate = Float(self.storedRate)
+            } else {
+                self.onPlaybackEnded?()
+            }
         }
     }
 

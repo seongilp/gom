@@ -20,17 +20,33 @@ Or download the notarized DMG from [Releases](https://github.com/seongilp/gom/re
 | Key | Action |
 |---|---|
 | `Space` | Play / Pause |
-| `←` / `→` | Seek −5s / +5s |
-| `↑` / `↓` | Volume up / down |
-| `1` | Resize window to 50% |
-| `2` | Resize window to 100% |
-| `3` | Resize window to 200% |
-| `V` | Toggle media info panel |
+| `←` / `→` | Seek ±5s (`⇧`: ±30s) |
+| `↑` / `↓` | Volume |
+| Scroll | Volume · horizontal scroll: seek |
+| `,` / `.` | Frame step (while paused) |
+| `[` / `]` / `\` | Speed −/+ 0.25× / reset |
+| `Home` / `End` | Jump to start / end |
+| `1` `2` `3` | Window 50% / 100% / 200% |
+| `⌘←` / `⌘→` | Previous / next file in folder (or queue) |
+| `L` | Loop |
 | `M` | Mute |
+| `S` | Snapshot (PNG saved next to the video) |
+| `C` | Subtitles on/off |
+| `T` | Always on top |
+| `V` | Media info + live stats (fps, bitrate, hwdec…) |
+| `?` | Keyboard shortcut help |
 | `⌘F` / double-click | Full screen |
-| `⌘O` | Open file |
+| `⌘O` | Open file(s) |
 
-Pausing (or moving the mouse) shows a seek bar with current position, duration, and volume; it auto-hides during playback.
+More built-ins:
+
+- **Resume playback** — reopening a file continues where you left off.
+- **Open Recent** menu (last 10 files).
+- **Drop multiple files** to build a play queue; playback advances automatically.
+- **Subtitles** — a matching `.srt`/`.ass`/`.vtt` next to the video loads automatically (played via mpv); drop a subtitle file onto the window to load it manually.
+- **Media keys / Now Playing** — play/pause and skip from the keyboard media keys, AirPods, or Control Center.
+- The display won't sleep during playback, and the cursor hides when idle.
+- Pausing (or moving the mouse) shows the seek bar HUD; it auto-hides during playback.
 
 Also supports drag & drop and "Open With" from Finder.
 
