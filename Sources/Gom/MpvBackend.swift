@@ -219,8 +219,14 @@ final class MpvBackend: NSObject, PlaybackBackend {
         )
 
         // mpv probes GL functions during creation — a current GL context is required.
+        // A nil context would "succeed" in CGLSetCurrentContext and then crash
+        // inside glGetString (NULL deref in libGL), so bail out instead.
+        guard let glContext = videoView.videoLayer.glContext else {
+            NSLog("MpvBackend: no CGL context available — skipping render context (audio-only playback)")
+            return
+        }
         let previousContext = CGLGetCurrentContext()
-        CGLSetCurrentContext(videoView.videoLayer.glContext)
+        CGLSetCurrentContext(glContext)
         defer { CGLSetCurrentContext(previousContext) }
 
         var context: OpaquePointer?

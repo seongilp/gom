@@ -5,7 +5,7 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
-VERSION="${VERSION:-1.1.0}"
+VERSION="${VERSION:-1.4.1}"
 IDENTITY="${IDENTITY:-Developer ID Application: Seongil Park (589U6DQJN8)}"
 DIST="dist"
 APP="$DIST/Gom.app"

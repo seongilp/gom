@@ -10,8 +10,10 @@ final class MpvVideoLayer: CAOpenGLLayer {
 
     /// Shared GL context: mpv_render_context_create must run with a current GL
     /// context, and drawing must use the same (or a shared) one.
-    private(set) var glPixelFormat: CGLPixelFormatObj!
-    private(set) var glContext: CGLContextObj!
+    /// nil when CGL setup fails — callers must skip mpv rendering then
+    /// (making a nil context current and calling GL crashes in libGL).
+    private(set) var glPixelFormat: CGLPixelFormatObj?
+    private(set) var glContext: CGLContextObj?
 
     override init() {
         super.init()
@@ -20,12 +22,17 @@ final class MpvVideoLayer: CAOpenGLLayer {
         backgroundColor = NSColor.black.cgColor
 
         glPixelFormat = Self.makePixelFormat()
-        var context: CGLContextObj?
-        CGLCreateContext(glPixelFormat, nil, &context)
-        glContext = context
+        if let glPixelFormat {
+            var context: CGLContextObj?
+            CGLCreateContext(glPixelFormat, nil, &context)
+            glContext = context
+        }
+        if glContext == nil {
+            NSLog("MpvVideoLayer: CGL context creation failed — mpv video rendering disabled")
+        }
     }
 
-    private static func makePixelFormat() -> CGLPixelFormatObj {
+    private static func makePixelFormat() -> CGLPixelFormatObj? {
         let attributes: [CGLPixelFormatAttribute] = [
             kCGLPFAOpenGLProfile, CGLPixelFormatAttribute(kCGLOGLPVersion_3_2_Core.rawValue),
             kCGLPFADoubleBuffer,
@@ -44,7 +51,7 @@ final class MpvVideoLayer: CAOpenGLLayer {
             ]
             CGLChoosePixelFormat(fallback, &pixelFormat, &count)
         }
-        return pixelFormat!
+        return pixelFormat
     }
 
     override init(layer: Any) {
@@ -69,11 +76,13 @@ final class MpvVideoLayer: CAOpenGLLayer {
     }
 
     override func copyCGLPixelFormat(forDisplayMask mask: UInt32) -> CGLPixelFormatObj {
+        guard let glPixelFormat else { return super.copyCGLPixelFormat(forDisplayMask: mask) }
         CGLRetainPixelFormat(glPixelFormat)
         return glPixelFormat
     }
 
     override func copyCGLContext(forPixelFormat pf: CGLPixelFormatObj) -> CGLContextObj {
+        guard let glContext else { return super.copyCGLContext(forPixelFormat: pf) }
         CGLRetainContext(glContext)
         return glContext
     }
