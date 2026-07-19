@@ -148,8 +148,12 @@ final class MpvBackend: NSObject, PlaybackBackend {
         }
         if let handle {
             mpv_set_wakeup_callback(handle, nil, nil)
-            mpv_terminate_destroy(handle)
             self.handle = nil
+            // A drain may still be mid-flight on eventQueue with the old handle;
+            // the serial-queue barrier both waits it out and publishes the nil
+            // handle to later blocks, so nothing touches mpv past this point.
+            eventQueue.sync {}
+            mpv_terminate_destroy(handle)
         }
     }
 
